@@ -1,11 +1,4 @@
-package cloudfront
-
-import (
-	"fmt"
-	"strings"
-
-	"github.com/edwardofclt/cloudfront-emulator/internal/types"
-)
+package types
 
 type ReadOnlyHeader map[string]struct{}
 
@@ -55,30 +48,4 @@ var OriginRequestReadOnlyHeaders = ReadOnlyHeader{
 	"if-unmodified-since": {},
 	"transfer-encoding":   {},
 	"via":                 {},
-}
-
-func checkReadOnlyHeader(headerList ReadOnlyHeader, header []CfHeader, reqHeaders CfHeaderArray) error {
-	if _, ok := headerList[header[0].Key]; ok {
-		if reqHeader, ok := reqHeaders[strings.ToLower(header[0].Key)]; ok {
-			if reqHeader[0].Value != header[0].Value {
-				return fmt.Errorf("this header is never allowed to be modified: %s got %s expected value %s", header[0].Key, header[0].Value, reqHeader[0].Value)
-			}
-		} else {
-			return fmt.Errorf("this header is never allowed to be modified: %s", header[0].Key)
-		}
-	}
-	return nil
-}
-
-func checkReadOnlyHeaderV2(headerList types.ReadOnlyHeader, header []types.CfHeader, reqHeaders types.CfHeaderArray) error {
-	if _, ok := headerList[header[0].Key]; ok {
-		if reqHeader, ok := reqHeaders[strings.ToLower(header[0].Key)]; ok {
-			if reqHeader[0].Value != header[0].Value {
-				return fmt.Errorf("this header is never allowed to be modified: %s got %s expected value %s", header[0].Key, header[0].Value, reqHeader[0].Value)
-			}
-		} else {
-			return fmt.Errorf("this header is never allowed to be modified: %s", header[0].Key)
-		}
-	}
-	return nil
 }

@@ -32,6 +32,11 @@ exports.handler = async (event, context, callback) => {
   }
 
   if (config.eventType === "viewer-request") {
+    return callback(null, {
+      status: "200",
+      body: "Hi",
+    })
+
     if (!cookie) {
       const resp = {
         status: "302",

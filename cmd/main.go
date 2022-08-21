@@ -6,6 +6,7 @@ import (
 	"syscall"
 
 	"github.com/edwardofclt/cloudfront-emulator/internal/cloudfront"
+	"github.com/edwardofclt/cloudfront-emulator/internal/types"
 	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -23,7 +24,7 @@ func main() {
 		cwd = os.Args[1]
 	}
 
-	p := &cloudfront.CloudfrontConfig{}
+	p := &types.CloudfrontConfig{}
 
 	viperConfig = viper.New()
 	viperConfig.AddConfigPath(cwd)
@@ -36,7 +37,7 @@ func main() {
 		logrus.WithError(err).Fatal("failed to unmarshal config")
 	}
 
-	cf := cloudfront.New(p)
+	cf := cloudfront.NewV2(p)
 
 	viperConfig.OnConfigChange(func(in fsnotify.Event) {
 		logrus.Info("Configuration Updated")

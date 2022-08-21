@@ -1,5 +1,0 @@
-package viewerrequest
-
-func New() {
-
-}
