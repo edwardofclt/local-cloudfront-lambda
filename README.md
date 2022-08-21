@@ -1,13 +1,13 @@
 # cloudfront-emulator
 
+![https://img.shields.io/badge/Development%20Status-WORK%20IN%20PROGRESS-orange](https://img.shields.io/badge/Development%20Status-WORK%20IN%20PROGRESS-orange)
+
 **Test your lambda@edge functions locally.**
 
 Have you ever found it frustrating to develop lambda@edge functions? Are you
 tired of editing your code, publishing a new version, updating the Cloudfront
 distribution, clear the cache, waiting for propagation to finish, and waiting to
 see your logs in Cloudwatch?
-
-> **Warning** This project is still being developed.
 
 ## Demo
 
