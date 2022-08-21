@@ -89,43 +89,18 @@ func (p *RequestPayload) EncodeJSON() ([]byte, error) {
 	return json.Marshal(p)
 }
 
-func generateRequestBody(requestId uuid.UUID, eventType EventType, r *http.Request) RequestPayload {
-	p := RequestPayload{
-		Records: []Record{
-			{
-				Cf: CfRecord{
-					Config: CfType{
-						DistributionName: "cloudfront-emulator",
-						DistributionId:   "localhost",
-						EventType:        eventType,
-						RequestId:        requestId,
-					},
-					Request: &CfRequest{
-						ClientIP:    strings.Split(r.RemoteAddr, ":")[0],
-						Method:      r.Method,
-						QueryString: r.URL.RawQuery,
-						URI:         r.URL.Path,
-						Headers:     parseHeaders(r.Header),
-					},
-				},
-			},
-		},
-	}
-	return p
-}
-
-func generateRequestBodyV2(requestId uuid.UUID, eventType types.EventType, r *http.Request) *types.CfRequest {
+func generateRequestBody(requestId uuid.UUID, eventType types.EventType, r *http.Request) *types.CfRequest {
 	p := &types.CfRequest{
 		ClientIP:    strings.Split(r.RemoteAddr, ":")[0],
 		Method:      r.Method,
 		QueryString: r.URL.RawQuery,
 		URI:         r.URL.Path,
-		Headers:     parseHeadersV2(r.Header),
+		Headers:     parseHeaders(r.Header),
 	}
 	return p
 }
 
-func parseHeadersV2(headers http.Header) *types.CfHeaderArray {
+func parseHeaders(headers http.Header) *types.CfHeaderArray {
 	h := &types.CfHeaderArray{}
 	for key, val := range headers {
 		vals := []types.CfHeader{}
@@ -142,42 +117,13 @@ func parseHeadersV2(headers http.Header) *types.CfHeaderArray {
 	return h
 }
 
-func parseHeaders(headers http.Header) *CfHeaderArray {
-	h := &CfHeaderArray{}
-	for key, val := range headers {
-		vals := []CfHeader{}
-		for _, v := range val {
-			vals = append(vals, CfHeader{
-				Key:   key,
-				Value: v,
-			})
-		}
-		hCopy := *h
-		hCopy[strings.ToLower(key)] = vals
-		h = &hCopy
-	}
-	return h
-}
-
-func parseRequestData(response string) (CfRequest, error) {
-	p := CfRequest{}
-	err := json.Unmarshal([]byte(response), &p)
-	return p, err
-}
-
-func parseRequestDataV2(response string) (types.CfRequest, error) {
+func parseRequestData(response string) (types.CfRequest, error) {
 	p := types.CfRequest{}
 	err := json.Unmarshal([]byte(response), &p)
 	return p, err
 }
 
-func parseResponseData(response string) (CfResponse, error) {
-	p := CfResponse{}
-	err := json.Unmarshal([]byte(response), &p)
-	return p, err
-}
-
-func parseResponseDataV2(response string) (types.CfResponse, error) {
+func parseResponseData(response string) (types.CfResponse, error) {
 	p := types.CfResponse{}
 	err := json.Unmarshal([]byte(response), &p)
 	return p, err

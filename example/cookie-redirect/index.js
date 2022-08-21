@@ -8,7 +8,7 @@ exports.handler = async (event, context, callback) => {
         ...request.headers,
         "x-eddie-test": [
           {
-            key: "X-Eddie-Test",
+            key: "x-eddie-test",
             value: "EddiesLambda@Edge",
           },
         ],
@@ -17,7 +17,6 @@ exports.handler = async (event, context, callback) => {
   }
 
   if (config.eventType == "viewer-response") {
-    // console.log("viewer-response")
     return callback(null, {
       headers: {
         ...response.headers,
@@ -32,11 +31,6 @@ exports.handler = async (event, context, callback) => {
   }
 
   if (config.eventType === "viewer-request") {
-    return callback(null, {
-      status: "200",
-      body: "Hi",
-    })
-
     if (!cookie) {
       const resp = {
         status: "302",

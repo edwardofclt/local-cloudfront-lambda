@@ -1,11 +1,11 @@
 package types
 
-type CloudfrontEventConfig struct {
+type CloudfrontEventInput struct {
 	CfRequest        *CfRequest
 	CfResponse       *CfResponse
 	CallbackResponse []byte
 }
 
 type CloudfrontEvent interface {
-	Execute(CloudfrontEventConfig) error
+	Execute(CloudfrontEventInput) error
 }

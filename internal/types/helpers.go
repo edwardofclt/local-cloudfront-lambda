@@ -19,6 +19,12 @@ func ParseRequestBody(response []byte) (CfRequest, error) {
 	return p, err
 }
 
+func ParseResponseBody(response []byte) (CfResponse, error) {
+	p := CfResponse{}
+	err := json.Unmarshal(response, &p)
+	return p, err
+}
+
 func MergeRequestBody(request *CfRequest, respData CfRequest) {
 	if respData.URI != request.URI {
 		request.URI = respData.URI
@@ -30,6 +36,21 @@ func MergeRequestBody(request *CfRequest, respData CfRequest) {
 
 	if respData.Body != request.Body {
 		request.Body = respData.Body
+	}
+
+	if respData.Headers != request.Headers {
+		request.Headers = respData.Headers
+	}
+	return
+}
+
+func MergeResponseBody(request *CfResponse, respData CfResponse) {
+	if respData.URI != request.URI {
+		request.URI = respData.URI
+	}
+
+	if respData.Status != request.Status {
+		request.Status = respData.Status
 	}
 
 	if respData.Headers != request.Headers {
@@ -56,12 +77,6 @@ func CheckHeaders(eventType EventType, reqHeaders CfHeaderArray, respHeaders CfH
 
 		if eventType == ViewerRequest {
 			if err := CheckReadOnlyHeader(ViewerRequestReadOnlyHeaders, header, reqHeaders); err != nil {
-				return errors.Wrap(err, "read only headeres were modified")
-			}
-		}
-
-		if eventType == OriginRequest {
-			if err := CheckReadOnlyHeader(OriginRequestReadOnlyHeaders, header, reqHeaders); err != nil {
 				return errors.Wrap(err, "read only headeres were modified")
 			}
 		}

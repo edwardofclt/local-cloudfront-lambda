@@ -37,7 +37,7 @@ func main() {
 		logrus.WithError(err).Fatal("failed to unmarshal config")
 	}
 
-	cf := cloudfront.NewV2(p)
+	cf := cloudfront.New(p)
 
 	viperConfig.OnConfigChange(func(in fsnotify.Event) {
 		logrus.Info("Configuration Updated")
