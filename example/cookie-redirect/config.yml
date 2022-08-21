@@ -1,0 +1,22 @@
+---
+config:
+  port: 3000 # defaults to 443
+  # addr: localhost # defaults to localhost
+  origins:
+    example:
+      domain: example.com
+      path: /
+  behaviors:
+    - path: /*
+      origin: example
+      events:
+        viewer-request:
+          handler: index.handler
+        origin-request:
+          handler: index.handler
+        origin-response:
+          handler: index.handler
+        viewer-response:
+          handler: index.handler
+    - path: /example/*
+      origin: example
