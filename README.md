@@ -7,7 +7,9 @@ tired of editing your code, publishing a new version, updating the Cloudfront
 distribution, clear the cache, waiting for propagation to finish, and waiting to
 see your logs in Cloudwatch?
 
-> **Warning** This project is still being developed.
+> **Warning**
+>
+> This project is still being developed.
 
 ## Demo
 
