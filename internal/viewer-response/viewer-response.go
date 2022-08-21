@@ -1,6 +1,7 @@
 package viewerresponse
 
 import (
+	"github.com/edwardofclt/cloudfront-emulator/internal/helpers"
 	"github.com/edwardofclt/cloudfront-emulator/internal/types"
 )
 
@@ -12,21 +13,19 @@ func New() types.CloudfrontEvent {
 }
 
 func (e *ViewerResponseEvent) Execute(config types.CloudfrontEventInput) error {
-	response, err := types.ParseResponseBody(config.CallbackResponse)
+	err := validateResponse(types.OriginRequest, *config.CfRequest, config.CallbackResponse)
 	if err != nil {
 		return err
 	}
 
-	err = validateResponse(types.OriginRequest, *config.CfRequest, response)
-	if err != nil {
-		return err
+	types.MergeResponseBody(config.CfResponse, *config.CfResponse)
+	if config.CallbackResponse.Headers != nil {
+		helpers.MergeHeadersToFinalResponse(config.FinalResponse.Headers, config.CallbackResponse.Headers)
 	}
-
-	types.MergeResponseBody(config.CfResponse, response)
 	return nil
 }
 
-func validateResponse(eventType types.EventType, request types.CfRequest, response types.CfResponse) error {
+func validateResponse(eventType types.EventType, request types.CfRequest, response types.CallbackResponse) error {
 	if response.Headers != nil {
 		if err := types.CheckHeaders(eventType, *request.Headers, *response.Headers); err != nil {
 			return err

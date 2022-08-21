@@ -1,6 +1,7 @@
 exports.handler = async (event, context, callback) => {
   const { config, response, request } = event.Records[0].cf
-  const cookie = getCookie(request.headers, "eddie-test")
+  console.log(config.eventType)
+  const cookie = getCookie(request?.headers, "eddie-test")
 
   if (config.eventType === "origin-request") {
     return callback(null, {
@@ -17,7 +18,7 @@ exports.handler = async (event, context, callback) => {
   }
 
   if (config.eventType == "viewer-response") {
-    return callback(null, {
+    const responseData = {
       headers: {
         ...response.headers,
         "x-event-type": [
@@ -27,7 +28,9 @@ exports.handler = async (event, context, callback) => {
           },
         ],
       },
-    })
+    }
+
+    return callback(null, responseData)
   }
 
   if (config.eventType === "viewer-request") {
@@ -61,11 +64,41 @@ exports.handler = async (event, context, callback) => {
     return callback(null, request)
   }
 
-  return callback(null, response)
+  // origin-response
+  const responseData = {
+    ...(request.uri === "/test-redirect"
+      ? {
+          status: "302",
+        }
+      : {}),
+    headers: {
+      ...response.headers,
+      ...(request.uri === "/test-redirect"
+        ? {
+            location: [
+              {
+                key: "location",
+                value: "https://google.com",
+              },
+            ],
+          }
+        : {}),
+      "x-event-type": [
+        {
+          key: "x-event-type",
+          value: "viewer-response",
+        },
+      ],
+    },
+  }
+
+  console.log(JSON.stringify(responseData))
+  return callback(null, responseData)
+  // return callback(null, response)
 }
 
 const getCookie = (headers, searchFor) => {
-  if (headers.cookie) {
+  if (headers?.cookie) {
     const cookies = headers.cookie[0].value.split(";")
     for (let i = 0; i < cookies.length; i++) {
       const cookie = cookies[i].split("=")

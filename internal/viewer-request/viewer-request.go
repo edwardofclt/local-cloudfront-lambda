@@ -12,18 +12,11 @@ func New() types.CloudfrontEvent {
 }
 
 func (e *ViewerRequestEvent) Execute(config types.CloudfrontEventInput) error {
-	response, err := types.ParseRequestBody(config.CallbackResponse)
+	err := validateRequest(types.ViewerRequest, *config.CfRequest, *config.CfRequest)
 	if err != nil {
 		return err
 	}
-
-	err = validateRequest(types.ViewerRequest, *config.CfRequest, response)
-	if err != nil {
-		return err
-	}
-
-	types.MergeRequestBody(config.CfRequest, response)
-
+	types.MergeRequestBody(config.CfRequest, *config.CfRequest)
 	return nil
 }
 

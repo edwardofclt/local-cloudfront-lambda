@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/edwardofclt/cloudfront-emulator/internal/types"
 	"github.com/pkg/errors"
 )
@@ -41,7 +42,7 @@ func Request(config *OriginRequestConfig) (*types.CfResponse, error) {
 	statusCode := strconv.Itoa(originResponse.StatusCode)
 
 	finalResponse := &types.CfResponse{
-		Body:    originResponseData,
+		Body:    aws.String(string(originResponseData)),
 		Status:  &statusCode,
 		Headers: &types.CfHeaderArray{},
 	}
