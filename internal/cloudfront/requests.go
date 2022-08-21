@@ -3,10 +3,11 @@ package cloudfront
 import (
 	"net/http"
 
+	"github.com/edwardofclt/cloudfront-emulator/internal/types"
 	"github.com/pkg/errors"
 )
 
-func writeRequestHeaders(w http.ResponseWriter, respData CfRequest) {
+func writeRequestHeaders(w http.ResponseWriter, respData types.CfRequest) {
 	if respData.Headers == nil {
 		return
 	}
@@ -18,7 +19,7 @@ func writeRequestHeaders(w http.ResponseWriter, respData CfRequest) {
 	}
 }
 
-func validateRequest(eventType EventType, reqData RequestPayload, respData CfRequest) error {
+func validateRequest(eventType types.EventType, reqData types.RequestPayload, respData types.CfRequest) error {
 	if respData.Headers != nil {
 		if err := checkHeaders(eventType, *reqData.Records[0].Cf.Request.Headers, *respData.Headers); err != nil {
 			return errors.Wrap(err, "headers could not be validated")

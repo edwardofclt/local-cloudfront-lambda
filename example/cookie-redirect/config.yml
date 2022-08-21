@@ -18,5 +18,3 @@ config:
           handler: index.handler
         viewer-response:
           handler: index.handler
-    - path: /example/*
-      origin: example

@@ -1,11 +1,9 @@
-package cloudfront
+package types
 
 import (
-	"encoding/json"
 	"net/http"
-	"strings"
+	"sync"
 
-	"github.com/edwardofclt/cloudfront-emulator/internal/types"
 	"github.com/google/uuid"
 )
 
@@ -85,46 +83,51 @@ type CfType struct {
 	RequestId        uuid.UUID `json:"requestId,omitempty"` // using uuid to distinquish requests for debugging
 }
 
-func (p *RequestPayload) EncodeJSON() ([]byte, error) {
-	return json.Marshal(p)
+type Cloudfront struct {
+	Server      *http.Server
+	Handler     http.Handler
+	PathToCerts string
+	Wg          *sync.WaitGroup
 }
 
-func generateRequestBody(requestId uuid.UUID, eventType types.EventType, r *http.Request) *types.CfRequest {
-	p := &types.CfRequest{
-		ClientIP:    strings.Split(r.RemoteAddr, ":")[0],
-		Method:      r.Method,
-		QueryString: r.URL.RawQuery,
-		URI:         r.URL.Path,
-		Headers:     parseHeaders(r.Header),
-	}
-	return p
+type CloudfrontConfig struct {
+	Address       *string           `mapstructure:"address"`
+	Port          *int              `mapstructure:"port"`
+	OriginConfigs map[string]Origin `mapstructure:"origins"`
+	Behaviors     []Behavior        `mapstructure:"behaviors"`
 }
 
-func parseHeaders(headers http.Header) *types.CfHeaderArray {
-	h := &types.CfHeaderArray{}
-	for key, val := range headers {
-		vals := []types.CfHeader{}
-		for _, v := range val {
-			vals = append(vals, types.CfHeader{
-				Key:   key,
-				Value: v,
-			})
-		}
-		hCopy := *h
-		hCopy[strings.ToLower(key)] = vals
-		h = &hCopy
-	}
-	return h
+type Origin struct {
+	Domain string
+	Path   string
 }
 
-func parseRequestData(response string) (types.CfRequest, error) {
-	p := types.CfRequest{}
-	err := json.Unmarshal([]byte(response), &p)
-	return p, err
+type EventType string
+
+const (
+	ViewerRequest  EventType = "viewer-request"
+	OriginRequest  EventType = "origin-request"
+	OriginResponse EventType = "origin-response"
+	ViewerResponse EventType = "viewer-response"
+)
+
+var EventTypes []EventType = []EventType{
+	ViewerRequest,
+	OriginRequest,
+	OriginResponse,
+	ViewerResponse,
 }
 
-func parseResponseData(response string) (types.CfResponse, error) {
-	p := types.CfResponse{}
-	err := json.Unmarshal([]byte(response), &p)
-	return p, err
+type Behavior struct {
+	Path   string
+	Origin string
+	Events map[EventType]Event
+}
+
+type Event struct {
+	Path    string
+	Handler string
+}
+
+type EventResponse struct {
 }

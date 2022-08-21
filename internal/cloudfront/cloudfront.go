@@ -22,6 +22,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edwardofclt/cloudfront-emulator/internal/lambda"
+	originrequest "github.com/edwardofclt/cloudfront-emulator/internal/origin-request"
+	originresponse "github.com/edwardofclt/cloudfront-emulator/internal/origin-response"
+	"github.com/edwardofclt/cloudfront-emulator/internal/origins"
+	"github.com/edwardofclt/cloudfront-emulator/internal/types"
+	viewerrequest "github.com/edwardofclt/cloudfront-emulator/internal/viewer-request"
+	viewerresponse "github.com/edwardofclt/cloudfront-emulator/internal/viewer-response"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -77,7 +84,7 @@ type Event struct {
 type EventResponse struct {
 }
 
-func New(config *CloudfrontConfig) *Cloudfront {
+func New(config *types.CloudfrontConfig) *CfServer {
 	if config == nil {
 		logrus.Fatal("CloudfrontConfig was nil")
 	}
@@ -92,21 +99,32 @@ func New(config *CloudfrontConfig) *Cloudfront {
 		port = *config.Port
 	}
 
-	cf := &Cloudfront{
-		server: &http.Server{
-			Addr: fmt.Sprintf("%s:%d", addr, port),
-		},
-		handler: generateRoutes(config),
-		wg:      &sync.WaitGroup{},
+	eventHandlers := map[types.EventType]types.CloudfrontEvent{
+		types.ViewerRequest:  viewerrequest.New(),
+		types.OriginRequest:  originrequest.New(),
+		types.OriginResponse: originresponse.New(),
+		types.ViewerResponse: viewerresponse.New(),
 	}
 
-	cf.pathToCerts = generateCertsForSSL(addr)
+	cf := &CfServer{
+		Server: &http.Server{
+			Addr: fmt.Sprintf("%s:%d", addr, port),
+		},
+		Handler:       generateRoutes(config, eventHandlers),
+		Wg:            &sync.WaitGroup{},
+		EventHandlers: eventHandlers,
+	}
+
+	if port == 443 {
+		cf.PathToCerts = generateCertsForSSL(addr)
+	}
+
 	startServer(cf)
 
 	return cf
 }
 
-func makeOriginRequest(r *http.Request, requestPayload RequestPayload, origin Origin) (*CfResponse, error) {
+func makeOriginRequest(r *http.Request, requestPayload types.RequestPayload, origin types.Origin) (*types.CfResponse, error) {
 	requestURL := filepath.Clean(fmt.Sprintf("%s/%s/%s", origin.Domain, origin.Path, r.URL.Path))
 	fullURL := fmt.Sprintf("%s://%s", strings.ToLower(strings.Split(r.Proto, "/")[0]), requestURL)
 
@@ -128,15 +146,15 @@ func makeOriginRequest(r *http.Request, requestPayload RequestPayload, origin Or
 
 	statusCode := strconv.Itoa(originResponse.StatusCode)
 
-	finalResponse := &CfResponse{
+	finalResponse := &types.CfResponse{
 		Body:    originResponseData,
 		Status:  &statusCode,
-		Headers: &CfHeaderArray{},
+		Headers: &types.CfHeaderArray{},
 	}
 
 	for key, value := range originResponse.Header {
 		header := *finalResponse.Headers
-		header[key] = []CfHeader{
+		header[key] = []types.CfHeader{
 			{
 				Key:   key,
 				Value: value[0],
@@ -148,23 +166,36 @@ func makeOriginRequest(r *http.Request, requestPayload RequestPayload, origin Or
 	return finalResponse, nil
 }
 
-func generateRoutes(config *CloudfrontConfig) *chi.Mux {
+func generateRoutes(config *types.CloudfrontConfig, eventHandlers map[types.EventType]types.CloudfrontEvent) *chi.Mux {
 	handlers := chi.NewRouter()
 
 	sort.Slice(config.Behaviors, func(i, j int) bool {
 		return config.Behaviors[i].Path > config.Behaviors[j].Path
 	})
 
+	cwd, err := os.Getwd()
+	if err != nil {
+		logrus.WithError(err).Error("failed to get cwd")
+	}
+
+	if len(os.Args) >= 2 {
+		cwd = os.Args[1]
+	}
+
 	for _, behaviorValue := range config.Behaviors {
 		// make a copy since behaviorValue is a pointer in the slice
 		behavior := behaviorValue
+
 		origin, ok := config.OriginConfigs[behavior.Origin]
 		if !ok {
 			logrus.Fatalf("bad configuration: behavior uses undefined origin: %s", behavior.Origin)
 		}
 
 		handlers.HandleFunc(behavior.Path, func(w http.ResponseWriter, r *http.Request) {
-			// listen for callback content
+			// In order to make the callback function work more like what (I think) the callback does
+			// within AWS, we're going to make it actually callback to a server endpoint with POST data.
+			// This simplifies the way we ingest the content and makes it easier to keep logs and
+			// actual response data separate.
 			var callbackContent []byte
 			callback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var err error
@@ -177,44 +208,65 @@ func generateRoutes(config *CloudfrontConfig) *chi.Mux {
 			}))
 			defer callback.Close()
 
-			var finalResponse *CfResponse
 			requestId := uuid.New()
 			w.Header().Add("x-lambda-emulator-requestId", requestId.String())
 
-			requestPayload := generateRequestBody(requestId, ViewerRequest, r)
+			var finalResponse *types.CfResponse
+			var err error
 
-			for _, event := range EventTypes {
-				// this needs to run regardless before we run origin-response
-				if event == OriginResponse {
-					var err error
-					finalResponse, err = makeOriginRequest(r, requestPayload, origin)
+			requestPayload := generateRequestBody(requestId, types.ViewerRequest, r)
+			responsePayload := &types.CfResponse{}
+			recordPayload := &types.RequestPayload{
+				Records: []types.Record{
+					{
+						Cf: types.CfRecord{
+							Config:   types.CfType{},
+							Request:  requestPayload,
+							Response: responsePayload,
+						},
+					},
+				},
+			}
+
+			for eventType, eventHandler := range eventHandlers {
+				// We do this check because it's the origin is request immediately before OriginResponse
+				if eventType == types.OriginResponse {
+					finalResponse, err = origins.Request(&origins.OriginRequestConfig{
+						HTTPRequest: r,
+						CfRequest:   *recordPayload,
+						Origin:      origin,
+					})
 					if err != nil {
-						sendErrorResponse(w, "failed to makeOriginRequest", err.Error())
+						sendErrorResponse(w, "failed to make origin request", err.Error())
 						return
 					}
 
-					requestPayload.Records[0].Cf.Response = finalResponse
+					recordPayload.Records[0].Cf.Response = finalResponse
 				}
 
-				// if we don't have a behavior to act on, continue to the next event type
-				eventHandler, ok := behavior.Events[event]
+				// If the configuration isn't configured for this event type, go on to the next event type
+				handlerContext, ok := behavior.Events[eventType]
 				if !ok {
 					continue
 				}
 
-				requestPayload.Records[0].Cf.Config.EventType = event
+				recordPayload.Records[0].Cf.Config.EventType = eventType
 
-				payload, err := requestPayload.EncodeJSON()
+				payload, err := recordPayload.EncodeJSON()
 				if err != nil {
 					logrus.WithError(err).Fatal("something went wrong marshaling the request")
 					sendErrorResponse(w, "failed to generate status", err.Error())
 					return
 				}
 
-				resp, err := executeLambda(payload, eventHandler, callback)
+				resp, err := lambda.Run(lambda.LambdaExecution{
+					Callback:         callback,
+					Payload:          payload,
+					WorkingDirectory: cwd,
+					Context:          handlerContext,
+				})
 				if err != nil {
-					sendErrorResponse(w, fmt.Sprintf(`failed to execute the lambda
-			%s`, resp), err.Error())
+					sendErrorResponse(w, fmt.Sprintf("failed to execute the lambda\n%s", resp), err.Error())
 					return
 				}
 
@@ -224,85 +276,47 @@ func generateRoutes(config *CloudfrontConfig) *chi.Mux {
 				// - [ ] Origin Response
 				// - [ ] Viewer Response
 
-				if event == ViewerRequest || event == OriginRequest {
-					respData, err := parseRequestData(string(callbackContent))
-					if err != nil {
-						sendErrorResponse(w, "failed to parse request response data", err.Error())
-						return
-					}
-
-					requestPayload = mergeRequestResponseWithRequestPayload(requestPayload, respData)
-
-					// if respData.Headers != nil {
-					// 	for key, val := range *respData.Headers {
-					// 		headers := *requestPayload.Records[0].Cf.Request.Headers
-					// 		headers[key] = val
-					// 		requestPayload.Records[0].Cf.Request.Headers = &headers
-					// 	}
-					// }
-
-					if event == ViewerRequest {
-						err = validateRequest(requestPayload.Records[0].Cf.Config.EventType, requestPayload, respData)
-						if err != nil {
-							sendErrorResponse(w, "invalid response data", err.Error())
-							return
-						}
-					}
-
-					if respData.Status != nil {
-						statusVal, err := strconv.Atoi(*respData.Status)
-						if err != nil {
-							sendErrorResponse(w, fmt.Sprintf("invalid status code: %s", *respData.Status), err.Error())
-							return
-						}
-
-						writeRequestHeaders(w, respData)
-						w.WriteHeader(statusVal)
-						w.Write([]byte(respData.Body))
-						return
-					}
+				config := types.CloudfrontEventInput{
+					CallbackResponse: callbackContent,
+					CfRequest:        requestPayload,
+					CfResponse:       responsePayload,
 				}
 
-				if event == ViewerResponse || event == OriginResponse {
-					respData, err := parseResponseData(string(callbackContent))
+				err = eventHandler.Execute(config)
+				if err != nil {
+					sendErrorResponse(w, "failed to execute handler actions", err.Error())
+					return
+				}
+
+				if requestPayload.Status != nil {
+					statusVal, err := strconv.Atoi(*requestPayload.Status)
 					if err != nil {
-						sendErrorResponse(w, "failed to parse response data", err.Error())
+						sendErrorResponse(w, fmt.Sprintf("invalid status code: %s", *requestPayload.Status), err.Error())
 						return
 					}
 
-					finalResponse = mergeResponseResponseWithRequestPayload(finalResponse, requestPayload.Records[0].Cf.Response)
-
-					// if respData.Headers != nil {
-					// 	for key, val := range *respData.Headers {
-					// 		headers := *requestPayload.Records[0].Cf.Request.Headers
-					// 		headers[key] = val
-					// 		requestPayload.Records[0].Cf.Request.Headers = &headers
-					// 	}
-					// }
-
-					if event == ViewerResponse {
-						err = validateResponse(requestPayload.Records[0].Cf.Config.EventType, requestPayload, respData)
-						if err != nil {
-							sendErrorResponse(w, "invalid response data", err.Error())
-							return
-						}
-
-						if respData.Status != nil {
-							statusVal, err := strconv.Atoi(*respData.Status)
-							if err != nil {
-								sendErrorResponse(w, fmt.Sprintf("invalid status code: %s", *respData.Status), err.Error())
-								return
-							}
-
-							writeResponseHeaders(w, respData)
-							w.WriteHeader(statusVal)
-							w.Write([]byte(respData.Body))
-							return
-						}
-					}
+					writeRequestHeaders(w, *requestPayload)
+					w.WriteHeader(statusVal)
+					w.Write([]byte(requestPayload.Body))
+					return
 				}
 
-				continue
+				if responsePayload.Status != nil {
+					statusVal, err := strconv.Atoi(*responsePayload.Status)
+					if err != nil {
+						sendErrorResponse(w, fmt.Sprintf("invalid status code: %s", *responsePayload.Status), err.Error())
+						return
+					}
+
+					writeResponseHeaders(w, *responsePayload)
+					w.WriteHeader(statusVal)
+					w.Write([]byte(responsePayload.Body))
+					return
+				}
+
+				if eventType == types.ViewerResponse || eventType == types.OriginResponse {
+					mergeResponseResponseWithRequestPayload(finalResponse, responsePayload)
+				}
 			}
 
 			statusVal, err := strconv.Atoi(*finalResponse.Status)
@@ -321,18 +335,34 @@ func generateRoutes(config *CloudfrontConfig) *chi.Mux {
 	return handlers
 }
 
-func mergeResponseResponseWithRequestPayload(finalResponse *CfResponse, respData *CfResponse) *CfResponse {
+func mergeResponseResponseWithRequestPayload(finalResponse *types.CfResponse, respData *types.CfResponse) *types.CfResponse {
 	if respData.URI != finalResponse.URI {
 		finalResponse.URI = respData.URI
 	}
 
-	if respData.Headers != finalResponse.Headers {
-		finalResponse.Headers = respData.Headers
+	var allHeaders types.CfHeaderArray
+	if finalResponse.Headers != nil {
+		allHeaders = *finalResponse.Headers
+	}
+
+	if respData.Headers != nil {
+		if respData.Headers != finalResponse.Headers {
+			for responseHeaderKey, responseHeader := range *respData.Headers {
+				if val, ok := allHeaders[responseHeaderKey]; !ok || val[0].Value != responseHeader[0].Value {
+					headers := allHeaders
+					if headers == nil {
+						headers = types.CfHeaderArray{}
+					}
+					headers[responseHeaderKey] = responseHeader
+					finalResponse.Headers = &headers
+				}
+			}
+		}
 	}
 	return finalResponse
 }
 
-func mergeRequestResponseWithRequestPayload(requestPayload RequestPayload, respData CfRequest) RequestPayload {
+func mergeRequestResponseWithRequestPayload(requestPayload types.RequestPayload, respData types.CfRequest) *types.RequestPayload {
 	request := requestPayload.Records[0].Cf.Request
 	if respData.URI != request.URI {
 		request.URI = respData.URI
@@ -341,10 +371,10 @@ func mergeRequestResponseWithRequestPayload(requestPayload RequestPayload, respD
 	if respData.Headers != request.Headers {
 		request.Headers = respData.Headers
 	}
-	return requestPayload
+	return &requestPayload
 }
 
-func executeLambda(event []byte, context Event, callback *httptest.Server) ([]byte, error) {
+func executeLambda(event []byte, context types.Event, callback *httptest.Server) ([]byte, error) {
 	var err error
 
 	cwd, err := os.Getwd()
@@ -390,43 +420,51 @@ func executeLambda(event []byte, context Event, callback *httptest.Server) ([]by
 	return resp, nil
 }
 
-func (cf *Cloudfront) Refresh(config *CloudfrontConfig) {
+type CfServer struct {
+	Server        *http.Server
+	Handler       http.Handler
+	Wg            *sync.WaitGroup
+	PathToCerts   string
+	EventHandlers map[types.EventType]types.CloudfrontEvent
+}
+
+func (cf *CfServer) Refresh(config *types.CloudfrontConfig) {
 	ctx := context.TODO()
-	if err := cf.server.Shutdown(ctx); err != nil {
+	if err := cf.Server.Shutdown(ctx); err != nil {
 		logrus.WithError(err).Fatal("failed to shutdown server")
 	}
-	cf.handler = generateRoutes(config)
+	cf.Handler = generateRoutes(config, cf.EventHandlers)
 	logrus.Info("waiting for server to shutdown")
 
 	// make sure the
-	cf.wg.Wait()
+	cf.Wg.Wait()
 
 	// decalre a new server
-	cf.server = &http.Server{
-		Addr: cf.server.Addr,
+	cf.Server = &http.Server{
+		Addr: cf.Server.Addr,
 	}
 
 	startServer(cf)
 }
 
-func startServer(cf *Cloudfront) {
-
-	if strings.Split(cf.server.Addr, ":")[1] == "443" {
-		cf.server.Handler = cf.handler
-		go func(cf *Cloudfront) {
-			cf.wg.Add(1)
-			defer cf.wg.Done()
-			if err := cf.server.ListenAndServeTLS(fmt.Sprintf("%s/cert.pem", cf.pathToCerts), fmt.Sprintf("%s/key.pem", cf.pathToCerts)); err != nil && err != http.ErrServerClosed {
+func startServer(cf *CfServer) {
+	if strings.Split(cf.Server.Addr, ":")[1] == "443" {
+		cf.Server.Handler = cf.Handler
+		go func(cf *CfServer) {
+			cf.Wg.Add(1)
+			defer cf.Wg.Done()
+			if err := cf.Server.ListenAndServeTLS(fmt.Sprintf("%s/cert.pem", cf.PathToCerts), fmt.Sprintf("%s/key.pem", cf.PathToCerts)); err != nil && err != http.ErrServerClosed {
 				logrus.WithError(err).Error("shutting down https server")
 			}
 		}(cf)
+
 		logrus.Info("Server Started 🚀")
 	} else {
-		cf.server.Handler = cf.handler
-		go func(cf *Cloudfront) {
-			cf.wg.Add(1)
-			defer cf.wg.Done()
-			if err := cf.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		cf.Server.Handler = cf.Handler
+		go func(cf *CfServer) {
+			cf.Wg.Add(1)
+			defer cf.Wg.Done()
+			if err := cf.Server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				logrus.WithError(err).Error("shutting down http server")
 			}
 		}(cf)
@@ -434,24 +472,24 @@ func startServer(cf *Cloudfront) {
 	}
 }
 
-func checkHeaders(eventType EventType, reqHeaders CfHeaderArray, respHeaders CfHeaderArray) error {
+func checkHeaders(eventType types.EventType, reqHeaders types.CfHeaderArray, respHeaders types.CfHeaderArray) error {
 	for respHeaderKey, header := range respHeaders {
 		if strings.ToLower(header[0].Key) != strings.ToLower(respHeaderKey) {
 			return fmt.Errorf("got %s saw key value %s", header[0].Key, respHeaderKey)
 		}
 
-		if err := checkReadOnlyHeader(AlwaysReadOnlyHeaders, header, reqHeaders); err != nil {
+		if err := checkReadOnlyHeader(types.AlwaysReadOnlyHeaders, header, reqHeaders); err != nil {
 			return errors.Wrap(err, "read only headeres were modified")
 		}
 
-		if eventType == ViewerRequest {
-			if err := checkReadOnlyHeader(ViewerRequestReadOnlyHeaders, header, reqHeaders); err != nil {
+		if eventType == types.ViewerRequest {
+			if err := checkReadOnlyHeader(types.ViewerRequestReadOnlyHeaders, header, reqHeaders); err != nil {
 				return errors.Wrap(err, "read only headeres were modified")
 			}
 		}
 
-		if eventType == OriginRequest {
-			if err := checkReadOnlyHeader(OriginRequestReadOnlyHeaders, header, reqHeaders); err != nil {
+		if eventType == types.OriginRequest {
+			if err := checkReadOnlyHeader(types.OriginRequestReadOnlyHeaders, header, reqHeaders); err != nil {
 				return errors.Wrap(err, "read only headeres were modified")
 			}
 		}
