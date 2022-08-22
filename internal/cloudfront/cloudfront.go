@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	_ "github.com/davecgh/go-spew/spew"
 	"github.com/edwardofclt/cloudfront-emulator/internal/lambda"
 	originrequest "github.com/edwardofclt/cloudfront-emulator/internal/origin-request"
 	originresponse "github.com/edwardofclt/cloudfront-emulator/internal/origin-response"
@@ -182,15 +183,17 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 					},
 				},
 			}
+
+			callbackContent := &types.CallbackResponse{}
 			for _, eventHandler := range eventHandlers {
 				// In order to make the callback function work more like what (I think) the callback does
 				// within AWS, we're going to make it actually callback to a server endpoint with POST data.
 				// This simplifies the way we ingest the content and makes it easier to keep logs and
 				// actual response data separate.
-				callbackContent := &types.CallbackResponse{}
 				loading := true
 
 				callback := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+					callbackContent = &types.CallbackResponse{}
 					data, err := ioutil.ReadAll(r.Body)
 					if err != nil {
 						sendErrorResponse(w, "failed to parse callback content", err.Error())
@@ -280,6 +283,8 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 					return
 				}
 			}
+
+			types.MergeHeaders(finalResponse.Headers, callbackContent.Headers)
 
 			statusVal, err := strconv.Atoi(*finalResponse.Status)
 			if err != nil {
