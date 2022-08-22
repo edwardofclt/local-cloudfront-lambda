@@ -3,7 +3,6 @@ package lambda
 import (
 	"fmt"
 	"net/http/httptest"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -11,6 +10,10 @@ import (
 	"github.com/edwardofclt/cloudfront-emulator/internal/types"
 	"github.com/pkg/errors"
 )
+
+type Package struct {
+	Type string `json:"type"`
+}
 
 type LambdaExecution struct {
 	Callback         *httptest.Server
@@ -22,17 +25,26 @@ type LambdaExecution struct {
 func Run(config LambdaExecution) ([]byte, error) {
 	var err error
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to cwd")
-	}
-
-	if len(os.Args) >= 2 {
-		cwd = os.Args[1]
-	}
-
 	handlerDefinition := strings.Split(config.Context.Handler, ".")
 	pathToHandler := filepath.Clean(fmt.Sprintf("./%s/%s.js", config.Context.Path, handlerDefinition[0]))
+
+	// packageFilePath := filepath.Join(config.WorkingDirectory, "package.json")
+	// packageFile := &Package{}
+	// packageFileContent, err := os.ReadFile(packageFilePath)
+	// if err != nil && err != os.ErrInvalid {
+	// 	return nil, err
+	// }
+
+	// if packageFileContent != nil {
+	// 	err := json.Unmarshal(packageFileContent, packageFile)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// }
+
+	// if packageFile.Type == "module" {
+	// 	return nil, fmt.Errorf("lambda uses modules")
+	// }
 
 	command := fmt.Sprintf(`require('./%s').%s(%s, 'f', async (error, response) => {
 		if (error) {
@@ -48,7 +60,7 @@ func Run(config LambdaExecution) ([]byte, error) {
 
 	cmd := exec.Command("node", "-e", command)
 
-	cmd.Dir = cwd
+	cmd.Dir = config.WorkingDirectory
 
 	resp, err := cmd.CombinedOutput()
 
