@@ -252,8 +252,6 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 					}
 				}
 
-				fmt.Println(eventHandler.Name)
-
 				config := types.CloudfrontEventInput{
 					CallbackResponse: *callbackContent,
 					CfRequest:        requestPayload,

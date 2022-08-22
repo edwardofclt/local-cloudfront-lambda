@@ -10,5 +10,5 @@ config:
     - path: /*
       origin: example
       events:
-        viewer-request:
+        viewer-response:
           handler: index.handler

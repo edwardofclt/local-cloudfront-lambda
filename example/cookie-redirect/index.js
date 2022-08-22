@@ -1,37 +1,6 @@
 exports.handler = async (event, context, callback) => {
-  const { config, response, request } = event.Records[0].cf
+  const { config, request } = event.Records[0].cf
   const cookie = getCookie(request?.headers, "eddie-test")
-  // console.log(JSON.stringify(event))
-
-  if (config.eventType === "origin-request") {
-    return callback(null, {
-      headers: {
-        ...request.headers,
-        "x-origin-request": [
-          {
-            key: "x-origin-request",
-            value: "yep",
-          },
-        ],
-      },
-    })
-  }
-
-  if (config.eventType == "viewer-response") {
-    const responseData = {
-      headers: {
-        ...response.headers,
-        "x-viewer-response": [
-          {
-            key: "x-viewer-response",
-            value: "yep",
-          },
-        ],
-      },
-    }
-
-    return callback(null, responseData)
-  }
 
   if (config.eventType === "viewer-request") {
     if (!cookie) {
@@ -74,17 +43,7 @@ exports.handler = async (event, context, callback) => {
     })
   }
 
-  return callback(null, {
-    headers: {
-      ...response.headers,
-      "x-origin-response": [
-        {
-          key: "x-origin-response",
-          value: "yep",
-        },
-      ],
-    },
-  })
+  return callback(null, null)
 }
 
 const getCookie = (headers, searchFor) => {

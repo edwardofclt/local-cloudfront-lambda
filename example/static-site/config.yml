@@ -12,9 +12,3 @@ config:
       events:
         viewer-request:
           handler: index.handler
-        origin-request:
-          handler: index.handler
-        origin-response:
-          handler: index.handler
-        viewer-response:
-          handler: index.handler
