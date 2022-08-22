@@ -21,29 +21,26 @@ type CfRecord struct {
 	Response *CfResponse `json:"response,omitempty"`
 }
 
-type CfRequest struct {
-	ClientIP          string         `json:"clientIp"`
+type BaseConfig struct {
+	ClientIP          string         `json:"clientIp,omitempty"`
 	Method            string         `json:"method,omitempty"`
 	QueryString       string         `json:"querystring,omitempty"`
 	URI               string         `json:"uri,omitempty"`
-	Body              *string        `json:"body"`
-	Headers           *CfHeaderArray `json:"headers"`
-	Status            *string        `json:"status"`
-	StatusDescription *string        `json:"statusDescription"`
+	Body              *string        `json:"body,omitempty"`
+	Headers           *CfHeaderArray `json:"headers,omitempty"`
+	Status            *string        `json:"status,omitempty"`
+	StatusDescription *string        `json:"statusDescription,omitempty"`
+}
+
+type CfRequest struct {
+	BaseConfig
 }
 
 type CfHeaderArray map[string][]CfHeader
 
 type CfResponse struct {
-	ClientIP          string         `json:"clientIp"`
-	Method            string         `json:"method,omitempty"`
-	QueryString       string         `json:"querystring,omitempty"`
-	URI               string         `json:"uri,omitempty"`
-	Origin            *CfOrigin      `json:"origin,omitempty"`
-	Body              *string        `json:"body"`
-	Headers           *CfHeaderArray `json:"headers"`
-	Status            *string        `json:"status"`
-	StatusDescription *string        `json:"statusDescription"`
+	BaseConfig
+	Origin *CfOrigin `json:"origin,omitempty"`
 }
 
 type CfOrigin struct {

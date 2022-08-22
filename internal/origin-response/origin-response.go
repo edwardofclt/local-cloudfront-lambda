@@ -1,7 +1,6 @@
 package originresponse
 
 import (
-	"github.com/edwardofclt/cloudfront-emulator/internal/helpers"
 	"github.com/edwardofclt/cloudfront-emulator/internal/types"
 )
 
@@ -18,9 +17,10 @@ func (e *OriginResponseEvent) Execute(config types.CloudfrontEventInput) error {
 		return err
 	}
 
-	types.MergeResponseBody(config.CfResponse, *config.CfResponse)
+	types.MergeHeaders(config.CfResponse.Headers, config.FinalResponse.Headers)
+	types.MergeHeaders(config.CfResponse.Headers, config.CallbackResponse.Headers)
 	if config.CallbackResponse.Headers != nil {
-		helpers.MergeHeadersToFinalResponse(config.FinalResponse.Headers, config.CallbackResponse.Headers)
+		types.MergeHeaders(config.FinalResponse.Headers, config.CallbackResponse.Headers)
 	}
 	return nil
 }

@@ -10,7 +10,15 @@
       "request": "launch",
       "mode": "debug",
       "program": "cmd/main.go",
-      "args": ["${workspaceFolder}/example/cookie-redirect/"]
+      "args": ["${workspaceFolder}/example/${input:example}/"]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "example",
+      "type": "promptString",
+      "description": "what example do you want to run",
+      "default": "cookie-redirect"
     }
   ]
 }

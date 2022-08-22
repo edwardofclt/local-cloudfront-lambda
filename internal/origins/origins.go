@@ -42,9 +42,11 @@ func Request(config *OriginRequestConfig) (*types.CfResponse, error) {
 	statusCode := strconv.Itoa(originResponse.StatusCode)
 
 	finalResponse := &types.CfResponse{
-		Body:    aws.String(string(originResponseData)),
-		Status:  &statusCode,
-		Headers: &types.CfHeaderArray{},
+		BaseConfig: types.BaseConfig{
+			Body:    aws.String(string(originResponseData)),
+			Status:  &statusCode,
+			Headers: &types.CfHeaderArray{},
+		},
 	}
 
 	for key, value := range originResponse.Header {

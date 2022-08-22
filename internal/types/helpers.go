@@ -39,7 +39,11 @@ func MergeRequestBody(request *CfRequest, respData CfRequest) {
 	}
 
 	if respData.Headers != request.Headers {
-		request.Headers = respData.Headers
+		copyOfRequest := *request.Headers
+		for key, header := range *respData.Headers {
+			copyOfRequest[key] = header
+		}
+		request.Headers = &copyOfRequest
 	}
 	return
 }
@@ -54,8 +58,9 @@ func MergeResponseBody(request *CfResponse, respData CfResponse) {
 	}
 
 	if respData.Headers != request.Headers {
-		request.Headers = respData.Headers
+		MergeHeaders(request.Headers, respData.Headers)
 	}
+
 	return
 }
 
@@ -96,4 +101,21 @@ func CheckReadOnlyHeader(headerList ReadOnlyHeader, header []CfHeader, reqHeader
 		}
 	}
 	return nil
+}
+
+func MergeHeaders(to *CfHeaderArray, from *CfHeaderArray) {
+	if to == nil {
+		to = &CfHeaderArray{}
+	}
+	if from == nil {
+		return
+	}
+
+	finalCopy := *to
+	if from != nil {
+		for key, header := range *from {
+			finalCopy[key] = header
+		}
+	}
+	to = &finalCopy
 }

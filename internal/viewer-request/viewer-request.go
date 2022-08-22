@@ -16,7 +16,8 @@ func (e *ViewerRequestEvent) Execute(config types.CloudfrontEventInput) error {
 	if err != nil {
 		return err
 	}
-	types.MergeRequestBody(config.CfRequest, *config.CfRequest)
+
+	types.MergeHeaders(config.CfRequest.Headers, config.CallbackResponse.Headers)
 	return nil
 }
 

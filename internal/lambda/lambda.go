@@ -34,7 +34,7 @@ func Run(config LambdaExecution) ([]byte, error) {
 	handlerDefinition := strings.Split(config.Context.Handler, ".")
 	pathToHandler := filepath.Clean(fmt.Sprintf("./%s/%s.js", config.Context.Path, handlerDefinition[0]))
 
-	command := fmt.Sprintf(`require('./%s').%s(%s, 'f', (error, response) => { 
+	command := fmt.Sprintf(`require('./%s').%s(%s, 'f', async (error, response) => {
 		if (error) {
 			throw new Error(error)
 		}
@@ -43,7 +43,7 @@ func Run(config LambdaExecution) ([]byte, error) {
 			method: "POST",
 		})
 		req.write(JSON.stringify(response))
-		req.end()
+		req.end()	
 	})`, pathToHandler, handlerDefinition[1], string(config.Payload), config.Callback.URL)
 
 	cmd := exec.Command("node", "-e", command)
@@ -51,15 +51,17 @@ func Run(config LambdaExecution) ([]byte, error) {
 	cmd.Dir = cwd
 
 	resp, err := cmd.CombinedOutput()
-	if err != nil {
-		return resp, errors.Wrap(err, "failed to execute the command")
-	}
 
+	// output the logs from the lambda before throwing the error
 	responseData := strings.Split(string(resp), "\n")
 	if len(responseData) > 1 {
 		for _, line := range responseData[:len(responseData)-1] {
 			fmt.Println(line)
 		}
+	}
+
+	if err != nil {
+		return resp, errors.Wrap(err, "failed to execute the command")
 	}
 
 	return resp, nil

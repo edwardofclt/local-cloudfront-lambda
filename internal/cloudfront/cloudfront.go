@@ -36,53 +36,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type Cloudfront struct {
-	server      *http.Server
-	handler     http.Handler
-	pathToCerts string
-	wg          *sync.WaitGroup
-}
-
-type CloudfrontConfig struct {
-	Address       *string           `mapstructure:"address"`
-	Port          *int              `mapstructure:"port"`
-	OriginConfigs map[string]Origin `mapstructure:"origins"`
-	Behaviors     []Behavior        `mapstructure:"behaviors"`
-}
-
-type Origin struct {
-	Domain string
-	Path   string
-}
-
-type EventType string
-
-const (
-	ViewerRequest  EventType = "viewer-request"
-	OriginRequest  EventType = "origin-request"
-	OriginResponse EventType = "origin-response"
-	ViewerResponse EventType = "viewer-response"
-)
-
-var EventTypes []EventType = []EventType{
-	ViewerRequest,
-	OriginRequest,
-	OriginResponse,
-	ViewerResponse,
-}
-
-type Behavior struct {
-	Path   string
-	Origin string
-	Events map[EventType]Event
-}
-
 type Event struct {
-	Path    string
-	Handler string
-}
-
-type EventResponse struct {
+	Name    types.EventType
+	Handler types.CloudfrontEvent
 }
 
 func New(config *types.CloudfrontConfig) *CfServer {
@@ -100,11 +56,23 @@ func New(config *types.CloudfrontConfig) *CfServer {
 		port = *config.Port
 	}
 
-	eventHandlers := map[types.EventType]types.CloudfrontEvent{
-		types.ViewerRequest:  viewerrequest.New(),
-		types.OriginRequest:  originrequest.New(),
-		types.OriginResponse: originresponse.New(),
-		types.ViewerResponse: viewerresponse.New(),
+	eventHandlers := []Event{
+		{
+			Name:    types.ViewerRequest,
+			Handler: viewerrequest.New(),
+		},
+		{
+			Name:    types.OriginRequest,
+			Handler: originrequest.New(),
+		},
+		{
+			Name:    types.OriginResponse,
+			Handler: originresponse.New(),
+		},
+		{
+			Name:    types.ViewerResponse,
+			Handler: viewerresponse.New(),
+		},
 	}
 
 	cf := &CfServer{
@@ -148,9 +116,11 @@ func makeOriginRequest(r *http.Request, requestPayload types.RequestPayload, ori
 	statusCode := strconv.Itoa(originResponse.StatusCode)
 
 	finalResponse := &types.CfResponse{
-		Body:    aws.String(string(originResponseData)),
-		Status:  &statusCode,
-		Headers: &types.CfHeaderArray{},
+		BaseConfig: types.BaseConfig{
+			Body:    aws.String(string(originResponseData)),
+			Status:  &statusCode,
+			Headers: &types.CfHeaderArray{},
+		},
 	}
 
 	for key, value := range originResponse.Header {
@@ -167,7 +137,7 @@ func makeOriginRequest(r *http.Request, requestPayload types.RequestPayload, ori
 	return finalResponse, nil
 }
 
-func generateRoutes(config *types.CloudfrontConfig, eventHandlers map[types.EventType]types.CloudfrontEvent) *chi.Mux {
+func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.Mux {
 	handlers := chi.NewRouter()
 
 	sort.Slice(config.Behaviors, func(i, j int) bool {
@@ -193,26 +163,6 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers map[types.Even
 		}
 
 		handlers.HandleFunc(behavior.Path, func(w http.ResponseWriter, r *http.Request) {
-			// In order to make the callback function work more like what (I think) the callback does
-			// within AWS, we're going to make it actually callback to a server endpoint with POST data.
-			// This simplifies the way we ingest the content and makes it easier to keep logs and
-			// actual response data separate.
-			callbackContent := &types.CallbackResponse{}
-			callback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				data, err := ioutil.ReadAll(r.Body)
-				if err != nil {
-					sendErrorResponse(w, "failed to parse callback content", err.Error())
-					return
-				}
-
-				err = json.Unmarshal(data, callbackContent)
-				if err != nil {
-					sendErrorResponse(w, "failed to unmarshal callback content", err.Error())
-					return
-				}
-			}))
-			defer callback.Close()
-
 			requestId := uuid.New()
 			w.Header().Add("x-lambda-emulator-requestId", requestId.String())
 
@@ -232,11 +182,33 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers map[types.Even
 					},
 				},
 			}
+			for _, eventHandler := range eventHandlers {
+				// In order to make the callback function work more like what (I think) the callback does
+				// within AWS, we're going to make it actually callback to a server endpoint with POST data.
+				// This simplifies the way we ingest the content and makes it easier to keep logs and
+				// actual response data separate.
+				callbackContent := &types.CallbackResponse{}
+				loading := true
 
-			for eventType, eventHandler := range eventHandlers {
-				callbackContent = &types.CallbackResponse{}
+				callback := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+					data, err := ioutil.ReadAll(r.Body)
+					if err != nil {
+						sendErrorResponse(w, "failed to parse callback content", err.Error())
+						return
+					}
+
+					err = json.Unmarshal(data, callbackContent)
+					if err != nil {
+						sendErrorResponse(w, "failed to unmarshal callback content", err.Error())
+						return
+					}
+
+					loading = false
+				}))
+				defer callback.Close()
+
 				// We do this check because it's the origin is request immediately before OriginResponse
-				if eventType == types.OriginResponse {
+				if eventHandler.Name == types.OriginResponse {
 					finalResponse, err = origins.Request(&origins.OriginRequestConfig{
 						HTTPRequest: r,
 						CfRequest:   *recordPayload,
@@ -249,12 +221,12 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers map[types.Even
 				}
 
 				// If the configuration isn't configured for this event type, go on to the next event type
-				handlerContext, ok := behavior.Events[eventType]
+				handlerContext, ok := behavior.Events[eventHandler.Name]
 				if !ok {
 					continue
 				}
 
-				recordPayload.Records[0].Cf.Config.EventType = eventType
+				recordPayload.Records[0].Cf.Config.EventType = eventHandler.Name
 
 				payload, err := recordPayload.EncodeJSON()
 				if err != nil {
@@ -274,14 +246,13 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers map[types.Even
 					return
 				}
 
-				// make sure the lambda sends the callback
 				for {
-					if callbackContent != nil {
+					if !loading {
 						break
 					}
 				}
 
-				fmt.Println(callbackContent.Headers)
+				fmt.Println(eventHandler.Name)
 
 				config := types.CloudfrontEventInput{
 					CallbackResponse: *callbackContent,
@@ -290,7 +261,7 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers map[types.Even
 					FinalResponse:    finalResponse,
 				}
 
-				err = eventHandler.Execute(config)
+				err = eventHandler.Handler.Execute(config)
 				if err != nil {
 					sendErrorResponse(w, "failed to execute handler actions", err.Error())
 					return
@@ -366,7 +337,7 @@ type CfServer struct {
 	Handler       http.Handler
 	Wg            *sync.WaitGroup
 	PathToCerts   string
-	EventHandlers map[types.EventType]types.CloudfrontEvent
+	EventHandlers []Event
 }
 
 func (cf *CfServer) Refresh(config *types.CloudfrontConfig) {

@@ -1,16 +1,16 @@
 exports.handler = async (event, context, callback) => {
   const { config, response, request } = event.Records[0].cf
-  console.log(config.eventType)
   const cookie = getCookie(request?.headers, "eddie-test")
+  // console.log(JSON.stringify(event))
 
   if (config.eventType === "origin-request") {
     return callback(null, {
       headers: {
         ...request.headers,
-        "x-eddie-test": [
+        "x-origin-request": [
           {
-            key: "x-eddie-test",
-            value: "EddiesLambda@Edge",
+            key: "x-origin-request",
+            value: "yep",
           },
         ],
       },
@@ -21,10 +21,10 @@ exports.handler = async (event, context, callback) => {
     const responseData = {
       headers: {
         ...response.headers,
-        "x-event-type": [
+        "x-viewer-response": [
           {
-            key: "x-event-type",
-            value: "viewer-response",
+            key: "x-viewer-response",
+            value: "yep",
           },
         ],
       },
@@ -61,40 +61,30 @@ exports.handler = async (event, context, callback) => {
       return callback(null, resp)
     }
 
-    return callback(null, request)
+    return callback(null, {
+      headers: {
+        ...request.headers,
+        "x-viewer-request": [
+          {
+            key: "x-viewer-request",
+            value: "yep",
+          },
+        ],
+      },
+    })
   }
 
-  // origin-response
-  const responseData = {
-    ...(request.uri === "/test-redirect"
-      ? {
-          status: "302",
-        }
-      : {}),
+  return callback(null, {
     headers: {
       ...response.headers,
-      ...(request.uri === "/test-redirect"
-        ? {
-            location: [
-              {
-                key: "location",
-                value: "https://google.com",
-              },
-            ],
-          }
-        : {}),
-      "x-event-type": [
+      "x-origin-response": [
         {
-          key: "x-event-type",
-          value: "viewer-response",
+          key: "x-origin-response",
+          value: "yep",
         },
       ],
     },
-  }
-
-  console.log(JSON.stringify(responseData))
-  return callback(null, responseData)
-  // return callback(null, response)
+  })
 }
 
 const getCookie = (headers, searchFor) => {

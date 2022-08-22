@@ -2,8 +2,10 @@ package types
 
 type CallbackResponse struct {
 	// TODO: bodyEncoding string `json:"bodyEncoding"`
-	Body              *string        `json:"body"`
-	Headers           *CfHeaderArray `json:"headers"`
-	Status            *string        `json:"status"`
-	StatusDescription *string        `json:"statusDescription"`
+	// Body              *string        `json:"body,omitempty"`
+	// Headers           *CfHeaderArray `json:"headers,omitempty"`
+	// Status            *string        `json:"status,omitempty"`
+	// StatusDescription *string        `json:"statusDescription,omitempty"`
+	BaseConfig
+	CfResponse
 }
