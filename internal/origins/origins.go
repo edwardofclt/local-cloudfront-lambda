@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/edwardofclt/cloudfront-emulator/internal/types"
@@ -32,8 +33,11 @@ func Request(config *OriginRequestConfig) (*types.CfResponse, error) {
 		originRequest.Header.Add(value[0].Key, value[0].Value)
 	}
 
-	// TODO: create a client and set timeout, default has no timeout
-	originResponse, err := http.DefaultClient.Do(originRequest)
+	client := http.Client{
+		Timeout: time.Second * 5,
+	}
+
+	originResponse, err := client.Do(originRequest)
 	if err != nil {
 		return nil, errors.Wrap(err, "error while fetching the origin")
 	}
