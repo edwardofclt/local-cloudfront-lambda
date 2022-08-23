@@ -87,10 +87,11 @@ type Cloudfront struct {
 }
 
 type CloudfrontConfig struct {
-	Address       *string           `mapstructure:"address"`
-	Port          *int              `mapstructure:"port"`
-	OriginConfigs map[string]Origin `mapstructure:"origins"`
-	Behaviors     []Behavior        `mapstructure:"behaviors"`
+	Address          *string           `mapstructure:"address"`
+	Port             *int              `mapstructure:"port"`
+	OriginConfigs    map[string]Origin `mapstructure:"origins"`
+	Behaviors        []Behavior        `mapstructure:"behaviors"`
+	WorkingDirectory string
 }
 
 type Origin struct {

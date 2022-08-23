@@ -78,7 +78,6 @@ func New(config *types.CloudfrontConfig) *CfServer {
 			Addr:    fmt.Sprintf("%s:%d", addr, port),
 			Handler: generateRoutes(config, eventHandlers),
 		},
-		// TODO: am i still using this?
 		Wg:            &sync.WaitGroup{},
 		EventHandlers: eventHandlers,
 	}
@@ -98,16 +97,6 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 	sort.Slice(config.Behaviors, func(i, j int) bool {
 		return config.Behaviors[i].Path > config.Behaviors[j].Path
 	})
-
-	// TODO: Add working directory to CloudfrontConfig
-	cwd, err := os.Getwd()
-	if err != nil {
-		logrus.WithError(err).Error("failed to get cwd")
-	}
-
-	if len(os.Args) >= 2 {
-		cwd = os.Args[1]
-	}
 
 	for _, behaviorValue := range config.Behaviors {
 		// make a copy since behaviorValue is a pointer in the slice
@@ -145,12 +134,12 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 
 			callbackContent := &types.CallbackResponse{}
 			for _, eventHandler := range eventHandlers {
+				wg := &sync.WaitGroup{}
 				// In order to make the callback function work more like what (I think) the callback does
 				// within AWS, we're going to make it actually callback to a server endpoint with POST data.
 				// This simplifies the way we ingest the content and makes it easier to keep logs and
 				// actual response data separate.
-				// TODO: replace with waitgroup
-				loading := true
+				wg.Add(1)
 
 				callback := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 					callbackContent = &types.CallbackResponse{}
@@ -166,7 +155,7 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 						return
 					}
 
-					loading = false
+					wg.Done()
 				}))
 				defer callback.Close()
 
@@ -200,7 +189,7 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 				resp, err := lambda.Run(lambda.LambdaExecution{
 					Callback:         callback,
 					Payload:          payload,
-					WorkingDirectory: cwd,
+					WorkingDirectory: config.WorkingDirectory,
 					Context:          handlerContext,
 				})
 				if err != nil {
@@ -208,11 +197,7 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 					return
 				}
 
-				for {
-					if !loading {
-						break
-					}
-				}
+				wg.Wait()
 
 				config := types.CloudfrontEventInput{
 					CallbackResponse: *callbackContent,
@@ -351,9 +336,7 @@ func sendErrorResponse(w http.ResponseWriter, content, payload string) {
 	fmt.Fprintf(w, `<html><body><h1>502 Error</h1><hr /><p><em>If you're seeing this it means something went wrong executing the logic in your lambda... More context can be found below:</em></p><hr /><pre>%s</pre><hr /><pre>%s</pre></body></html>`, content, payload)
 }
 
-// TODO: https://marcofranssen.nl/build-a-go-webserver-on-http-2-using-letsencrypt
 func generateCertsForSSL(host string) string {
-
 	tmpFolder := os.TempDir()
 
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

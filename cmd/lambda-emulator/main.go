@@ -15,13 +15,11 @@ import (
 var viperConfig *viper.Viper
 
 func main() {
-	// TODO: fix when no argument is passed in
 	cwd, err := os.Getwd()
 	if err != nil {
 		logrus.WithError(err).Fatal("failed to find working directory")
 	}
 
-	// fmt.Println(os.Args, len(os.Args), cwd)
 	if len(os.Args) >= 2 {
 		cwd = os.Args[1]
 	}
@@ -39,6 +37,7 @@ func main() {
 		logrus.WithError(err).Fatal("failed to unmarshal config")
 	}
 
+	p.WorkingDirectory = cwd
 	cf := cloudfront.New(p)
 
 	viperConfig.OnConfigChange(func(in fsnotify.Event) {
@@ -46,6 +45,7 @@ func main() {
 		if err := viperConfig.UnmarshalKey("config", p); err != nil {
 			logrus.WithError(err).Fatal("failed to refresh config")
 		}
+		p.WorkingDirectory = cwd
 		cf.Refresh(p)
 	})
 
