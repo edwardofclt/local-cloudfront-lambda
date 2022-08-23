@@ -1,14 +1,17 @@
 package lambda
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/edwardofclt/cloudfront-emulator/internal/types"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type Package struct {
@@ -28,23 +31,15 @@ func Run(config LambdaExecution) ([]byte, error) {
 	handlerDefinition := strings.Split(config.Context.Handler, ".")
 	pathToHandler := filepath.Clean(fmt.Sprintf("./%s/%s.js", config.Context.Path, handlerDefinition[0]))
 
-	// packageFilePath := filepath.Join(config.WorkingDirectory, "package.json")
-	// packageFile := &Package{}
-	// packageFileContent, err := os.ReadFile(packageFilePath)
-	// if err != nil && err != os.ErrInvalid {
-	// 	return nil, err
-	// }
-
-	// if packageFileContent != nil {
-	// 	err := json.Unmarshal(packageFileContent, packageFile)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// }
-
-	// if packageFile.Type == "module" {
-	// 	return nil, fmt.Errorf("lambda uses modules")
-	// }
+	packageFilePath := filepath.Join(config.WorkingDirectory, "package.json")
+	packageFile := &Package{}
+	packageFileContent, err := os.ReadFile(packageFilePath)
+	if err == nil {
+		err := json.Unmarshal(packageFileContent, packageFile)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	command := fmt.Sprintf(`require('./%s').%s(%s, 'f', async (error, response) => {
 		if (error) {
@@ -57,6 +52,22 @@ func Run(config LambdaExecution) ([]byte, error) {
 		req.write(JSON.stringify(response))
 		req.end()	
 	})`, pathToHandler, handlerDefinition[1], string(config.Payload), config.Callback.URL)
+
+	if packageFile.Type == "module" {
+		logrus.Info("Running as a module")
+		command = fmt.Sprintf(`let module;
+		import('./%s').then(m => m.%s(%s, 'f', async (error, response) => {
+			if (error) {
+				throw new Error(error)
+			}
+	
+			const req = http.request("%s", {
+				method: "POST",
+			})
+			req.write(JSON.stringify(response))
+			req.end()	
+		}));`, pathToHandler, handlerDefinition[1], string(config.Payload), config.Callback.URL)
+	}
 
 	cmd := exec.Command("node", "-e", command)
 
