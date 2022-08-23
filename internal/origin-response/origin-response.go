@@ -17,10 +17,12 @@ func (e *OriginResponseEvent) Execute(config types.CloudfrontEventInput) error {
 		return err
 	}
 
+	config.CfResponse.BaseConfig = types.MergeBaseConfigs(config.CfResponse.BaseConfig, config.CallbackResponse.BaseConfig)
 	types.MergeHeaders(config.CfResponse.Headers, config.FinalResponse.Headers)
 	types.MergeHeaders(config.CfResponse.Headers, config.CallbackResponse.Headers)
 	if config.CallbackResponse.Headers != nil {
-		types.MergeHeaders(config.FinalResponse.Headers, config.CallbackResponse.Headers)
+		// TODO: make sure this makes sense and headers are showing up properly
+		types.MergeHeaders(config.FinalResponse.Headers, config.CfResponse.Headers)
 	}
 	return nil
 }

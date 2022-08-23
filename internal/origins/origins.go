@@ -1,9 +1,9 @@
 package origins
 
 import (
-	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -20,21 +20,25 @@ type OriginRequestConfig struct {
 }
 
 func Request(config *OriginRequestConfig) (*types.CfResponse, error) {
-	requestURL := filepath.Clean(fmt.Sprintf("%s/%s/%s", config.Origin.Domain, config.Origin.Path, config.HTTPRequest.URL.Path))
-	fullURL := fmt.Sprintf("%s://%s", strings.ToLower(strings.Split(config.HTTPRequest.Proto, "/")[0]), requestURL)
+	fullURL := url.URL{
+		Host:   config.Origin.Domain,
+		Path:   filepath.Join(config.Origin.Path, config.CfRequest.Records[0].Cf.Request.URI),
+		Scheme: strings.Split(config.HTTPRequest.Proto, "/")[0],
+	}
 
-	originRequest, _ := http.NewRequest(config.HTTPRequest.Method, fullURL, config.HTTPRequest.Body)
+	originRequest, _ := http.NewRequest(config.CfRequest.Records[0].Cf.Request.Method, fullURL.String(), config.HTTPRequest.Body)
 
 	for _, value := range *config.CfRequest.Records[0].Cf.Request.Headers {
 		originRequest.Header.Add(value[0].Key, value[0].Value)
 	}
 
+	// TODO: create a client and set timeout, default has no timeout
 	originResponse, err := http.DefaultClient.Do(originRequest)
 	if err != nil {
 		return nil, errors.Wrap(err, "error while fetching the origin")
 	}
 
-	originResponseData, err := ioutil.ReadAll(originResponse.Body)
+	originResponseData, err := io.ReadAll(originResponse.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "error while parsing origin response")
 	}

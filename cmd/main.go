@@ -15,11 +15,13 @@ import (
 var viperConfig *viper.Viper
 
 func main() {
+	// TODO: fix when no argument is passed in
 	cwd, err := os.Getwd()
 	if err != nil {
 		logrus.WithError(err).Fatal("failed to find working directory")
 	}
 
+	// fmt.Println(os.Args, len(os.Args), cwd)
 	if len(os.Args) >= 2 {
 		cwd = os.Args[1]
 	}
@@ -44,10 +46,6 @@ func main() {
 		if err := viperConfig.UnmarshalKey("config", p); err != nil {
 			logrus.WithError(err).Fatal("failed to refresh config")
 		}
-		if err := viperConfig.UnmarshalKey("config", p); err != nil {
-			logrus.WithError(err).Fatal("failed to unmarshal config")
-		}
-
 		cf.Refresh(p)
 	})
 
