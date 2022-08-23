@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/imdario/mergo"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 func (p *RequestPayload) EncodeJSON() ([]byte, error) {
@@ -101,6 +103,27 @@ func CheckReadOnlyHeader(headerList ReadOnlyHeader, header []CfHeader, reqHeader
 		}
 	}
 	return nil
+}
+
+func MergeBaseConfigs(to BaseConfig, from BaseConfig) BaseConfig {
+	err := mergo.Merge(&to, from, func(c *mergo.Config) {
+		c.Overwrite = true
+	})
+
+	if err != nil {
+		logrus.WithError(err).Error("failed to merge baseConfigs")
+	}
+	// var merged map[string]interface{}
+	// toJson, _ := json.Marshal(to)
+	// fromJson, _ := json.Marshal(from)
+
+	// json.Unmarshal(toJson, &merged)
+	// json.Unmarshal(fromJson, &merged)
+
+	// mergedBaseConfig := BaseConfig{}
+	// mergedJson, _ := json.Marshal(merged)
+	// json.Unmarshal(mergedJson, &mergedBaseConfig)
+	return to
 }
 
 func MergeHeaders(to *CfHeaderArray, from *CfHeaderArray) {

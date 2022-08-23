@@ -17,6 +17,7 @@ func (e *ViewerResponseEvent) Execute(config types.CloudfrontEventInput) error {
 		return err
 	}
 
+	config.CfResponse.BaseConfig = types.MergeBaseConfigs(config.CfResponse.BaseConfig, config.CallbackResponse.BaseConfig)
 	types.MergeHeaders(config.CfResponse.Headers, config.CallbackResponse.Headers)
 	if config.CfResponse.Headers != nil {
 		types.MergeHeaders(config.FinalResponse.Headers, config.CfResponse.Headers)

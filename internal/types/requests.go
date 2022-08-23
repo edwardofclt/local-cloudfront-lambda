@@ -34,13 +34,13 @@ type BaseConfig struct {
 
 type CfRequest struct {
 	BaseConfig
+	Origin *CfOrigin `json:"origin,omitempty"`
 }
 
 type CfHeaderArray map[string][]CfHeader
 
 type CfResponse struct {
 	BaseConfig
-	Origin *CfOrigin `json:"origin,omitempty"`
 }
 
 type CfOrigin struct {
@@ -87,10 +87,11 @@ type Cloudfront struct {
 }
 
 type CloudfrontConfig struct {
-	Address       *string           `mapstructure:"address"`
-	Port          *int              `mapstructure:"port"`
-	OriginConfigs map[string]Origin `mapstructure:"origins"`
-	Behaviors     []Behavior        `mapstructure:"behaviors"`
+	Address          *string           `mapstructure:"address"`
+	Port             *int              `mapstructure:"port"`
+	OriginConfigs    map[string]Origin `mapstructure:"origins"`
+	Behaviors        []Behavior        `mapstructure:"behaviors"`
+	WorkingDirectory string
 }
 
 type Origin struct {
@@ -115,9 +116,10 @@ var EventTypes []EventType = []EventType{
 }
 
 type Behavior struct {
-	Path   string
-	Origin string
-	Events map[EventType]Event
+	DefaultPath string `mapstructure:"defaultPath"`
+	Path        string
+	Origin      string
+	Events      map[EventType]Event
 }
 
 type Event struct {

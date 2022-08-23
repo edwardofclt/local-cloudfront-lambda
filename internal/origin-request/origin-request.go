@@ -18,6 +18,7 @@ func (e *OriginRequestEvent) Execute(config types.CloudfrontEventInput) error {
 		return err
 	}
 
+	config.CfRequest.BaseConfig = types.MergeBaseConfigs(config.CfRequest.BaseConfig, config.CallbackResponse.BaseConfig)
 	types.MergeHeaders(config.CfRequest.Headers, config.CallbackResponse.Headers)
 
 	return nil

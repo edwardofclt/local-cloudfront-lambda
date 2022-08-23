@@ -14,7 +14,7 @@ see your logs in Cloudwatch?
 To demo this, clone the repo down and run
 
 ```bash
-go run ./... example/cookie-redirect
+go run ./cmd/lambda-emulator/... example/cookie-redirect
 ```
 
 ## Configuration Files

@@ -37,6 +37,7 @@ func main() {
 		logrus.WithError(err).Fatal("failed to unmarshal config")
 	}
 
+	p.WorkingDirectory = cwd
 	cf := cloudfront.New(p)
 
 	viperConfig.OnConfigChange(func(in fsnotify.Event) {
@@ -44,10 +45,7 @@ func main() {
 		if err := viperConfig.UnmarshalKey("config", p); err != nil {
 			logrus.WithError(err).Fatal("failed to refresh config")
 		}
-		if err := viperConfig.UnmarshalKey("config", p); err != nil {
-			logrus.WithError(err).Fatal("failed to unmarshal config")
-		}
-
+		p.WorkingDirectory = cwd
 		cf.Refresh(p)
 	})
 

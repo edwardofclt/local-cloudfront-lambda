@@ -7,9 +7,9 @@ exports.handler = async (event, context, callback) => {
       const resp = {
         status: "302",
         headers: {
-          asdf: [
+          "x-asdf": [
             {
-              key: "asdf",
+              key: "x-asdf",
               value: "yaaaa",
             },
           ],
@@ -32,7 +32,6 @@ exports.handler = async (event, context, callback) => {
 
     return callback(null, {
       headers: {
-        ...request.headers,
         "x-viewer-request": [
           {
             key: "x-viewer-request",

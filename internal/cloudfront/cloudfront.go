@@ -10,19 +10,18 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
+	_ "github.com/davecgh/go-spew/spew"
 	"github.com/edwardofclt/cloudfront-emulator/internal/lambda"
 	originrequest "github.com/edwardofclt/cloudfront-emulator/internal/origin-request"
 	originresponse "github.com/edwardofclt/cloudfront-emulator/internal/origin-response"
@@ -32,7 +31,6 @@ import (
 	viewerresponse "github.com/edwardofclt/cloudfront-emulator/internal/viewer-response"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -77,9 +75,9 @@ func New(config *types.CloudfrontConfig) *CfServer {
 
 	cf := &CfServer{
 		Server: &http.Server{
-			Addr: fmt.Sprintf("%s:%d", addr, port),
+			Addr:    fmt.Sprintf("%s:%d", addr, port),
+			Handler: generateRoutes(config, eventHandlers),
 		},
-		Handler:       generateRoutes(config, eventHandlers),
 		Wg:            &sync.WaitGroup{},
 		EventHandlers: eventHandlers,
 	}
@@ -93,65 +91,12 @@ func New(config *types.CloudfrontConfig) *CfServer {
 	return cf
 }
 
-func makeOriginRequest(r *http.Request, requestPayload types.RequestPayload, origin types.Origin) (*types.CfResponse, error) {
-	requestURL := filepath.Clean(fmt.Sprintf("%s/%s/%s", origin.Domain, origin.Path, r.URL.Path))
-	fullURL := fmt.Sprintf("%s://%s", strings.ToLower(strings.Split(r.Proto, "/")[0]), requestURL)
-
-	originRequest, _ := http.NewRequest(r.Method, fullURL, r.Body)
-
-	for _, value := range *requestPayload.Records[0].Cf.Request.Headers {
-		originRequest.Header.Add(value[0].Key, value[0].Value)
-	}
-
-	originResponse, err := http.DefaultClient.Do(originRequest)
-	if err != nil {
-		return nil, errors.Wrap(err, "error while fetching the origin")
-	}
-
-	originResponseData, err := ioutil.ReadAll(originResponse.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "error while parsing origin response")
-	}
-
-	statusCode := strconv.Itoa(originResponse.StatusCode)
-
-	finalResponse := &types.CfResponse{
-		BaseConfig: types.BaseConfig{
-			Body:    aws.String(string(originResponseData)),
-			Status:  &statusCode,
-			Headers: &types.CfHeaderArray{},
-		},
-	}
-
-	for key, value := range originResponse.Header {
-		header := *finalResponse.Headers
-		header[key] = []types.CfHeader{
-			{
-				Key:   key,
-				Value: value[0],
-			},
-		}
-		finalResponse.Headers = &header
-	}
-
-	return finalResponse, nil
-}
-
 func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.Mux {
 	handlers := chi.NewRouter()
 
 	sort.Slice(config.Behaviors, func(i, j int) bool {
 		return config.Behaviors[i].Path > config.Behaviors[j].Path
 	})
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		logrus.WithError(err).Error("failed to get cwd")
-	}
-
-	if len(os.Args) >= 2 {
-		cwd = os.Args[1]
-	}
 
 	for _, behaviorValue := range config.Behaviors {
 		// make a copy since behaviorValue is a pointer in the slice
@@ -175,23 +120,30 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 				Records: []types.Record{
 					{
 						Cf: types.CfRecord{
-							Config:   types.CfType{},
+							Config: types.CfType{
+								DistributionId:   "E3SPQM2D9G974C",
+								RequestId:        requestId,
+								DistributionName: "E3SPQM2D9G974C",
+							},
 							Request:  requestPayload,
 							Response: responsePayload,
 						},
 					},
 				},
 			}
+
+			callbackContent := &types.CallbackResponse{}
 			for _, eventHandler := range eventHandlers {
+				wg := &sync.WaitGroup{}
 				// In order to make the callback function work more like what (I think) the callback does
 				// within AWS, we're going to make it actually callback to a server endpoint with POST data.
 				// This simplifies the way we ingest the content and makes it easier to keep logs and
 				// actual response data separate.
-				callbackContent := &types.CallbackResponse{}
-				loading := true
+				wg.Add(1)
 
 				callback := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-					data, err := ioutil.ReadAll(r.Body)
+					callbackContent = &types.CallbackResponse{}
+					data, err := io.ReadAll(r.Body)
 					if err != nil {
 						sendErrorResponse(w, "failed to parse callback content", err.Error())
 						return
@@ -203,7 +155,7 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 						return
 					}
 
-					loading = false
+					wg.Done()
 				}))
 				defer callback.Close()
 
@@ -225,7 +177,6 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 				if !ok {
 					continue
 				}
-
 				recordPayload.Records[0].Cf.Config.EventType = eventHandler.Name
 
 				payload, err := recordPayload.EncodeJSON()
@@ -238,7 +189,7 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 				resp, err := lambda.Run(lambda.LambdaExecution{
 					Callback:         callback,
 					Payload:          payload,
-					WorkingDirectory: cwd,
+					WorkingDirectory: config.WorkingDirectory,
 					Context:          handlerContext,
 				})
 				if err != nil {
@@ -246,11 +197,7 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 					return
 				}
 
-				for {
-					if !loading {
-						break
-					}
-				}
+				wg.Wait()
 
 				config := types.CloudfrontEventInput{
 					CallbackResponse: *callbackContent,
@@ -280,6 +227,9 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 					return
 				}
 			}
+
+			// Sanity checks that the headers are there
+			types.MergeHeaders(finalResponse.Headers, callbackContent.Headers)
 
 			statusVal, err := strconv.Atoi(*finalResponse.Status)
 			if err != nil {
@@ -343,7 +293,6 @@ func (cf *CfServer) Refresh(config *types.CloudfrontConfig) {
 	if err := cf.Server.Shutdown(ctx); err != nil {
 		logrus.WithError(err).Fatal("failed to shutdown server")
 	}
-	cf.Handler = generateRoutes(config, cf.EventHandlers)
 	logrus.Info("waiting for server to shutdown")
 
 	// make sure the
@@ -351,7 +300,8 @@ func (cf *CfServer) Refresh(config *types.CloudfrontConfig) {
 
 	// decalre a new server
 	cf.Server = &http.Server{
-		Addr: cf.Server.Addr,
+		Addr:    cf.Server.Addr,
+		Handler: generateRoutes(config, cf.EventHandlers),
 	}
 
 	startServer(cf)
@@ -359,7 +309,6 @@ func (cf *CfServer) Refresh(config *types.CloudfrontConfig) {
 
 func startServer(cf *CfServer) {
 	if strings.Split(cf.Server.Addr, ":")[1] == "443" {
-		cf.Server.Handler = cf.Handler
 		go func(cf *CfServer) {
 			cf.Wg.Add(1)
 			defer cf.Wg.Done()
@@ -370,7 +319,6 @@ func startServer(cf *CfServer) {
 
 		logrus.Info("Server Started 🚀")
 	} else {
-		cf.Server.Handler = cf.Handler
 		go func(cf *CfServer) {
 			cf.Wg.Add(1)
 			defer cf.Wg.Done()
@@ -389,7 +337,6 @@ func sendErrorResponse(w http.ResponseWriter, content, payload string) {
 }
 
 func generateCertsForSSL(host string) string {
-
 	tmpFolder := os.TempDir()
 
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
