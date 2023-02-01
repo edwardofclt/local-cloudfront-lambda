@@ -101,7 +101,7 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 		// make a copy since behaviorValue is a pointer in the slice
 		behavior := behaviorValue
 
-		origin, ok := config.OriginConfigs[behavior.Origin]
+		_, ok := config.OriginConfigs[behavior.Origin]
 		if !ok {
 			logrus.Fatalf("bad configuration: behavior uses undefined origin: %s", behavior.Origin)
 		}
