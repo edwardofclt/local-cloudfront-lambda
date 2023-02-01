@@ -30,6 +30,10 @@ func Request(config *OriginRequestConfig) (*types.CfResponse, error) {
 	originRequest, _ := http.NewRequest(config.CfRequest.Records[0].Cf.Request.Method, fullURL.String(), config.HTTPRequest.Body)
 
 	for _, value := range *config.CfRequest.Records[0].Cf.Request.Headers {
+		if len(value) == 0 {
+			continue
+		}
+
 		originRequest.Header.Add(value[0].Key, value[0].Value)
 	}
 
