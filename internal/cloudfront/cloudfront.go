@@ -25,7 +25,6 @@ import (
 	"github.com/edwardofclt/cloudfront-emulator/internal/lambda"
 	originrequest "github.com/edwardofclt/cloudfront-emulator/internal/origin-request"
 	originresponse "github.com/edwardofclt/cloudfront-emulator/internal/origin-response"
-	"github.com/edwardofclt/cloudfront-emulator/internal/origins"
 	"github.com/edwardofclt/cloudfront-emulator/internal/types"
 	viewerrequest "github.com/edwardofclt/cloudfront-emulator/internal/viewer-request"
 	viewerresponse "github.com/edwardofclt/cloudfront-emulator/internal/viewer-response"
@@ -160,17 +159,17 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 				defer callback.Close()
 
 				// We do this check because it's the origin is request immediately before OriginResponse
-				if eventHandler.Name == types.OriginResponse {
-					finalResponse, err = origins.Request(&origins.OriginRequestConfig{
-						HTTPRequest: r,
-						CfRequest:   *recordPayload,
-						Origin:      origin,
-					})
-					if err != nil {
-						sendErrorResponse(w, "failed to make origin request", err.Error())
-						return
-					}
-				}
+				// if eventHandler.Name == types.OriginResponse {
+				// 	finalResponse, err = origins.Request(&origins.OriginRequestConfig{
+				// 		HTTPRequest: r,
+				// 		CfRequest:   *recordPayload,
+				// 		Origin:      origin,
+				// 	})
+				// 	if err != nil {
+				// 		sendErrorResponse(w, "failed to make origin request", err.Error())
+				// 		return
+				// 	}
+				// }
 
 				// If the configuration isn't configured for this event type, go on to the next event type
 				handlerContext, ok := behavior.Events[eventHandler.Name]
