@@ -33,6 +33,9 @@ func Request(config *OriginRequestConfig) (*types.CfResponse, error) {
 		if len(value) == 0 {
 			continue
 		}
+		if originRequest == nil {
+			continue
+		}
 
 		originRequest.Header.Add(value[0].Key, value[0].Value)
 	}
