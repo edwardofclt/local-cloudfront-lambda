@@ -1,6 +1,4 @@
-# cloudfront-emulator
-
-![https://img.shields.io/badge/Development%20Status-WORK%20IN%20PROGRESS-orange](https://img.shields.io/badge/Development%20Status-WORK%20IN%20PROGRESS-orange)
+# local-cloudfront-lambda
 
 **Test your lambda@edge functions locally.**
 
@@ -14,7 +12,7 @@ see your logs in Cloudwatch?
 To demo this, clone the repo down and run
 
 ```bash
-go run ./cmd/lambda-emulator/... example/cookie-redirect
+go run ./cmd/emulator/... example/cookie-redirect
 ```
 
 ## Configuration Files
@@ -50,5 +48,5 @@ config:
 - [ ] validate header modification
   - [x] viewer-request
   - [x] origin-request
-  - [ ] origin-response
-  - [ ] viewer-response
+  - [x] origin-response
+  - [x] viewer-response
