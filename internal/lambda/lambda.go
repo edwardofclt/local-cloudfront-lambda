@@ -1,6 +1,7 @@
 package lambda
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
@@ -8,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"text/template"
 
 	"github.com/edwardofclt/cloudfront-emulator/internal/types"
 	"github.com/pkg/errors"
@@ -23,13 +26,59 @@ type LambdaExecution struct {
 	WorkingDirectory string
 	Context          types.Event
 	Payload          []byte
+	Waitgroup        *sync.WaitGroup
+}
+
+const defaultLambdaCommand = `require('./{{.Path}}').{{.Handler}}({{.Payload}}, 'f', async (error, response) => {
+	if (error) {
+		throw new Error(error)
+	}
+
+	const req = http.request("{{.CallbackURL}}", {
+		method: "POST",
+	})
+	req.write(JSON.stringify(response))
+	req.end()	
+})
+
+const req = http.request("{{.CallbackURL}}", {
+	method: "POST",
+})
+req.write(JSON.stringify({{.Payload}}))
+req.end()`
+
+const moduleLambdaCommand = `let module;
+import('./{{.Path}}').then(m => m.{{.Handler}}({{.Payload}}, 'f', async (error, response) => {
+	if (error) {
+		throw new Error(error)
+	}
+
+	const req = http.request("{{.CallbackURL}}", {
+		method: "POST",
+	})
+	req.write(JSON.stringify(response))
+	req.end()	
+})).then(() => {
+	const req = http.request("{{.CallbackURL}}", {
+		method: "POST",
+	})
+	req.write(JSON.stringify({{.Payload}}))
+	req.end()	
+});`
+
+type LambdaTemplateValues struct {
+	Path        string
+	Handler     string
+	Payload     string
+	CallbackURL string
 }
 
 func Run(config LambdaExecution) ([]byte, error) {
 	var err error
 
+	cmd := new(exec.Cmd)
+
 	handlerDefinition := strings.Split(config.Context.Handler, ".")
-	pathToHandler := filepath.Clean(fmt.Sprintf("./%s/%s.js", config.Context.Path, handlerDefinition[0]))
 
 	packageFilePath := filepath.Join(config.WorkingDirectory, "package.json")
 	packageFile := &Package{}
@@ -41,38 +90,32 @@ func Run(config LambdaExecution) ([]byte, error) {
 		}
 	}
 
-	command := fmt.Sprintf(`require('./%s').%s(%s, 'f', async (error, response) => {
-		if (error) {
-			throw new Error(error)
-		}
-
-		const req = http.request("%s", {
-			method: "POST",
-		})
-		req.write(JSON.stringify(response))
-		req.end()	
-	})`, pathToHandler, handlerDefinition[1], string(config.Payload), config.Callback.URL)
-
-	if packageFile.Type == "module" {
-		logrus.Info("Running as a module")
-		command = fmt.Sprintf(`let module;
-		import('./%s').then(m => m.%s(%s, 'f', async (error, response) => {
-			if (error) {
-				throw new Error(error)
-			}
-	
-			const req = http.request("%s", {
-				method: "POST",
-			})
-			req.write(JSON.stringify(response))
-			req.end()	
-		}));`, pathToHandler, handlerDefinition[1], string(config.Payload), config.Callback.URL)
+	templateValues := &LambdaTemplateValues{
+		Path:        filepath.Clean(fmt.Sprintf("./%s/%s.js", config.Context.Path, handlerDefinition[0])),
+		Handler:     handlerDefinition[1],
+		Payload:     string(config.Payload),
+		CallbackURL: config.Callback.URL,
 	}
 
-	cmd := exec.Command("node", "-e", command)
+	command := &bytes.Buffer{}
+	tmpl, err := template.New("command").Parse(defaultLambdaCommand)
+	if err != nil {
+		logrus.Fatal("failed to parse command template: %w", err)
+	}
+	tmpl.Execute(command, templateValues)
 
+	if packageFile.Type == "module" {
+		command.Reset()
+		logrus.Info("Running as a module")
+		tmpl, err := template.New("command").Parse(moduleLambdaCommand)
+		if err != nil {
+			logrus.Fatal("failed to parse module template: %w", err)
+		}
+		tmpl.Execute(command, templateValues)
+	}
+
+	cmd = exec.Command("node", "-e", command.String())
 	cmd.Dir = config.WorkingDirectory
-
 	resp, err := cmd.CombinedOutput()
 
 	// output the logs from the lambda before throwing the error

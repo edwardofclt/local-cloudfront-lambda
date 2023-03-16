@@ -14,27 +14,6 @@ const content = `
 `
 
 exports.handler = (event, context, callback) => {
-  /*
-   * Generate HTTP OK response using 200 status code with HTML body.
-   */
-  const response = {
-    status: "200",
-    statusDescription: "OK",
-    headers: {
-      "cache-control": [
-        {
-          key: "Cache-Control",
-          value: "max-age=100",
-        },
-      ],
-      "content-type": [
-        {
-          key: "Content-Type",
-          value: "text/html",
-        },
-      ],
-    },
-    body: content,
-  }
-  callback(null, response)
+
+  return
 }

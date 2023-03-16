@@ -25,6 +25,7 @@ import (
 	"github.com/edwardofclt/cloudfront-emulator/internal/lambda"
 	originrequest "github.com/edwardofclt/cloudfront-emulator/internal/origin-request"
 	originresponse "github.com/edwardofclt/cloudfront-emulator/internal/origin-response"
+	"github.com/edwardofclt/cloudfront-emulator/internal/origins"
 	"github.com/edwardofclt/cloudfront-emulator/internal/types"
 	viewerrequest "github.com/edwardofclt/cloudfront-emulator/internal/viewer-request"
 	viewerresponse "github.com/edwardofclt/cloudfront-emulator/internal/viewer-response"
@@ -85,9 +86,11 @@ func New(config *types.CloudfrontConfig) *CfServer {
 		cf.PathToCerts = generateCertsForSSL(addr)
 	}
 
-	startServer(cf)
-
 	return cf
+}
+
+func (cf *CfServer) Start() {
+	startServer(cf)
 }
 
 func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.Mux {
@@ -101,14 +104,16 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 		// make a copy since behaviorValue is a pointer in the slice
 		behavior := behaviorValue
 
-		_, ok := config.OriginConfigs[behavior.Origin]
-		if !ok {
-			logrus.Fatalf("bad configuration: behavior uses undefined origin: %s", behavior.Origin)
-		}
-
 		handlers.HandleFunc(behavior.Path, func(w http.ResponseWriter, r *http.Request) {
 			requestId := uuid.New()
 			w.Header().Add("x-lambda-emulator-requestId", requestId.String())
+
+			origin, ok := config.OriginConfigs[behavior.Origin]
+			if !ok {
+				err := fmt.Errorf("bad configuration: behavior uses undefined origin: %s requestId: %s", behavior.Origin, requestId)
+				logrus.Error(err)
+				w.Write([]byte(err.Error()))
+			}
 
 			var finalResponse *types.CfResponse
 			var err error
@@ -120,9 +125,9 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 					{
 						Cf: types.CfRecord{
 							Config: types.CfType{
-								DistributionId:   "E3SPQM2D9G974C",
+								DistributionId:   "E1234567890",
 								RequestId:        requestId,
-								DistributionName: "E3SPQM2D9G974C",
+								DistributionName: "E1234567890",
 							},
 							Request:  requestPayload,
 							Response: responsePayload,
@@ -140,8 +145,8 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 				// actual response data separate.
 				wg.Add(1)
 
+				alreadyCalled := false
 				callback := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-					callbackContent = &types.CallbackResponse{}
 					data, err := io.ReadAll(r.Body)
 					if err != nil {
 						sendErrorResponse(w, "failed to parse callback content", err.Error())
@@ -153,23 +158,25 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 						sendErrorResponse(w, "failed to unmarshal callback content", err.Error())
 						return
 					}
-
-					wg.Done()
+					if !alreadyCalled {
+						alreadyCalled = true
+						wg.Done()
+					}
 				}))
 				defer callback.Close()
 
 				// We do this check because it's the origin is request immediately before OriginResponse
-				// if eventHandler.Name == types.OriginResponse {
-				// 	finalResponse, err = origins.Request(&origins.OriginRequestConfig{
-				// 		HTTPRequest: r,
-				// 		CfRequest:   *recordPayload,
-				// 		Origin:      origin,
-				// 	})
-				// 	if err != nil {
-				// 		sendErrorResponse(w, "failed to make origin request", err.Error())
-				// 		return
-				// 	}
-				// }
+				if eventHandler.Name == types.OriginResponse {
+					finalResponse, err = origins.Request(&origins.OriginRequestConfig{
+						HTTPRequest: r,
+						CfRequest:   *recordPayload,
+						Origin:      origin,
+					})
+					if err != nil {
+						sendErrorResponse(w, "failed to make origin request", err.Error())
+						return
+					}
+				}
 
 				// If the configuration isn't configured for this event type, go on to the next event type
 				handlerContext, ok := behavior.Events[eventHandler.Name]
@@ -190,6 +197,7 @@ func generateRoutes(config *types.CloudfrontConfig, eventHandlers []Event) *chi.
 					Payload:          payload,
 					WorkingDirectory: config.WorkingDirectory,
 					Context:          handlerContext,
+					Waitgroup:        wg,
 				})
 				if err != nil {
 					sendErrorResponse(w, fmt.Sprintf("failed to execute the lambda\n%s", resp), err.Error())

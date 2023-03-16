@@ -12,3 +12,14 @@ config:
       events:
         viewer-request:
           handler: index.handler
+          onChange: ["npm", "run", "compile"]
+        viewer-response:
+          handler: index.handler
+          onChange: ["npm", "run", "compile"]
+        origin-request:
+          handler: index.handler
+          onChange: ["npm", "run", "compile"]
+        origin-response:
+          handler: index.handler
+          onChange: ["npm", "run", "compile"]
+        

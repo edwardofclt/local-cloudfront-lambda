@@ -123,8 +123,9 @@ type Behavior struct {
 }
 
 type Event struct {
-	Path    string
-	Handler string
+	Path     string
+	Handler  string
+	OnChange []string
 }
 
 type EventResponse struct {

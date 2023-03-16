@@ -49,6 +49,8 @@ func main() {
 		cf.Refresh(p)
 	})
 
+	cf.Start()
+
 	cancelChan := make(chan os.Signal, 1)
 	signal.Notify(cancelChan, syscall.SIGTERM, syscall.SIGINT)
 	<-cancelChan
